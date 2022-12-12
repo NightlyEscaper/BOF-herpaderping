@@ -59,57 +59,56 @@ jobs:
       with:
         fallback: '' # Optional fallback tag to use when no tag can be found
 
-  linux-windows-build:
-    name: MinGW Build
+  build-dll:
+    name: Build and publish tagged release
     needs: [sync_latest_from_upstream]
     if: ${{ (needs.sync_latest_from_upstream.outputs.status == 'true') || (needs.sync_latest_from_upstream.outputs.tag == '') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    runs-on: windows-2019
+    timeout-minutes: 10
     steps:
+      - name: Download Tools
+        run: |
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Invoke-WebRequest -Uri https://github.com/stedolan/jq/releases/download/jq-1.6/jq-win64.exe -OutFile jq.exe
+          Invoke-WebRequest -Verbose -Uri https://github.com/moloch--/minisign/releases/download/v0.2.1/minisign.exe -OutFile minisign.exe
+          ls
+      - name: checkout code
+        uses: actions/checkout@v3
 
-    - name: Checkout target repo
-      uses: actions/checkout@v2
-      with:
-        # optional: set the branch to checkout,
-        # sync action checks out your 'target_sync_branch' anyway
-        ref:  master
-        
-    - name: Git Fetch Tags
-      run: git fetch --prune --unshallow --tags -f
+      - name: setup-msbuild
+        uses: microsoft/setup-msbuild@v1.1
+        with:
+          msbuild-architecture: x64
 
-    - name: OS Packages 
-      run: |
-        sudo apt-get update --fix-missing && sudo apt-get -y install \
-        git build-essential zlib1g zlib1g-dev wget zip unzip \
-        mingw-w64 binutils-mingw-w64 g++-mingw-w64 gcc-multilib
-    - name: Minisign
-      run: |
-        MINISIGN_TMP=`mktemp -d`
-        cd $MINISIGN_TMP
-        wget https://github.com/aead/minisign/releases/download/v0.2.0/minisign-linux-amd64.tar.gz
-        tar xvf minisign-linux-amd64.tar.gz
-        mv ./minisign ~/minisign
-    - name: Build Package
-      run: |
-        mkdir compiled
-        cat extension.json | jq ".version |= \"${{ needs.sync_latest_from_upstream.outputs.tag || 'v0.0.0' }}\"" > ./compiled/extension.json
-        (cd herpaderping && x86_64-w64-mingw32-gcc -c HerpaDerp.c -o herpaderp.x64.o)
-        cp herpaderping/herpaderp.x64.o ./compiled/
-        cd compiled
-        tar -czvf ../herpaderp.tar.gz .
-      
-    - name: Sign Package
-      run: |
-        touch ~/minisign.key && chmod 600 ~/minisign.key
-        echo -e "${{ secrets.MINISIGN_PRIVATE_KEY }}" > ~/minisign.key
-        MANIFEST=$(cat ./compiled/extension.json | base64 -w 0)
-        bash -c "echo \"\" | ~/minisign -s ~/minisign.key -S -m ./herpaderp.tar.gz -t \"$MANIFEST\" -x herpaderp.minisig"
-    - name: "Publish Release"
-      uses: "marvinpinto/action-automatic-releases@latest"
-      with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        prerelease: false
-        automatic_release_tag: ${{ needs.sync_latest_from_upstream.outputs.tag || 'v0.0.0' }}
-        files: |
-          ./herpaderp.minisig
-          ./herpaderp.tar.gz
+      - name: build_x64
+        run: |
+          mkdir compiled
+          msbuild -p:Configuration=Release -p:Platform=x64 herpaderping.sln
+          copy bin\\herpaderp.x64.o compiled\\herpaderp.x64.o
+
+      - name: Build Package
+        run: |
+          Get-Content -Path alias.json | .\jq.exe '.version |= ""${{ needs.sync_latest_from_upstream.outputs.tag || 'v0.0.0' }}""' > ./compiled/alias.json
+          cd compiled
+          tar -czvf ..\herpaderp.tar.gz .
+
+      - name: sign package
+        run: |
+          Write-Output "${{ secrets.MINISIGN_PRIVATE_KEY }}" > minisign.key
+          $Content1 = Get-Content -Path ./compiled/extension.json
+          $Bytes = [System.Text.Encoding]::UTF8.GetBytes($Content1)
+          $Encoded = [System.Convert]::ToBase64String($Bytes)
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Invoke-WebRequest -Verbose -Uri https://github.com/moloch--/minisign/releases/download/v0.2.1/minisign.exe -OutFile minisign.exe
+          ls
+          .\minisign.exe -s minisign.key -S -m herpaderp.tar.gz -t "$Encoded" -x herpaderp.minisig
+
+      - name: "Publish Release"
+        uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          prerelease: false
+          automatic_release_tag: ${{ needs.sync_latest_from_upstream.outputs.tag || 'v0.0.0' }}
+          files: |
+            herpaderp.minisig
+            herpaderp.tar.gz
