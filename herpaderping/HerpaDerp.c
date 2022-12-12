@@ -365,6 +365,11 @@ typedef struct _ACTIVATION_CONTEXT_STACK
 } ACTIVATION_CONTEXT_STACK, * PACTIVATION_CONTEXT_STACK;
 
 
+typedef struct _PROCESSOR_NUMBER {
+    WORD   Group;
+    BYTE  Number;
+    BYTE  Reserved;
+} PROCESSOR_NUMBER, *PPROCESSOR_NUMBER;
 
 typedef struct _GDI_TEB_BATCH
 {
@@ -461,7 +466,7 @@ typedef struct _TEB
     PVOID EtwTraceData;
     PVOID WinSockData;
     ULONG GdiBatchCount;
-
+    
     union
     {
         PROCESSOR_NUMBER CurrentIdealProcessor;
