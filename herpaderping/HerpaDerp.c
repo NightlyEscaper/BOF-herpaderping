@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include "bofdefs.h"
-
+#include <processthreadsapi.h>
 
 typedef LONG KPRIORITY;
 typedef int WINBOOL, * PWINBOOL, * LPWINBOOL;
